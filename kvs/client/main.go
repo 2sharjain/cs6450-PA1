@@ -63,9 +63,13 @@ func runClient(id int, addr string, done *atomic.Bool, workload *kvs.Workload, r
 			op := workload.Next()
 			key := fmt.Sprintf("%d", op.Key)
 			if op.IsRead {
-				client.Get(key)
+				go func(){
+					client.Get(key)
+				}
 			} else {
-				client.Put(key, value)
+				go func(){
+					client.Put(key, value)
+				}
 			}
 			opsCompleted++
 		}
