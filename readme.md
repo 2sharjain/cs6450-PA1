@@ -1,3 +1,6 @@
+## 1. Results With our implementation we get the best throughput of 5762763 op/s (~5.7M) with a batch size of 512. The following graph highlights the trend in the throughput varying with the batch size
+
+
 ## 2. Design
 We began by running the baseline code without modifications, achieving a throughput of approximately 16,000 operations per second on four nodes. To improve performance, we introduced parallelism by launching a separate goroutine for each client request, which increased throughput to around 32,000 on four nodes.
 
