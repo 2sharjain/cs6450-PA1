@@ -13,7 +13,7 @@ The next figure illustrates how our implementation scales with the number of cli
 
 This clearly demonstrates that the system maintains strong scalability as client load increases.
 
-![Server CPU and Memory Usage](htop.png)
+![Server CPU Usage](htop.png)
 
 The cpu usage is near 100% for nearly all the cores on the server indicating that the server is close to processing as many requests as is possible.
 
