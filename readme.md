@@ -8,7 +8,7 @@ On the server side, we replaced the global lock with Go’s sync.Map, enabling c
 Next, we parallelized server processing by assigning worker goroutines to handle batches independently. Additionally, we removed locks on statistics and operation counters, replacing them with atomic functions to eliminate contention. With these combined optimizations, our final median throughput reached approximately 6 million operations per second.
 
 ## 3. Reproducability
-Configure the cloundlab with 8 nodes and run the command `./run-cluster.sh 1 7`
+Configure the cloudlab with 8 nodes and run the command `./run-cluster.sh 1 7`
 
 ## 4. Reflection 
 We picked up a lot about how RPC works and the kinds of techniques you can use to speed things up in distributed systems. We also got more experience with Go, especially the tricky parts of debugging and testing when you’re running across a cluster. Next time, we think we could do better by using stronger profiling tools and keeping a record of results as we go, so it’s easier to see what changes actually help and what sets us back.
