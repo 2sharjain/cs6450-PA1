@@ -1,13 +1,17 @@
 ## 1. Results
 
-With our implementation, we achieve the best throughput of **5,762,763 op/s (~5.7M)** with a batch size of **512**.  
-The graph below highlights the trend in throughput as the batch size varies:
+With our implementation, we achieve a peak throughput of **5,762,763 op/s (~5.7M)** at a batch size of **512**.  
+The figure below shows how throughput varies with the batch size:
 
 ![Throughput vs Batch Size](Figure_1.png)
 
-Note that all the numbers have been colleted by taking the mean of 3 trial runs. It is observed that performance significantly improves with increasing the batch size since this reduces the number of RPC calls while making each one more effective. However, the benefit plateaus at a batch size of 512.
+All results are reported as the mean of **3 trial runs**. We observe that throughput improves with larger batch sizes because fewer RPC calls are needed, and each call carries more work. However, the benefit levels off beyond a batch size of 512.
 
-The plot below shows how our implementation scales as the number of cliencts increases
+The next figure illustrates how our implementation scales with the number of clients:
+
+![Throughput vs Number of Clients](Figure_2.png)
+
+This clearly demonstrates that the system maintains strong scalability as client load increases.
 
 
 ## 2. Design
