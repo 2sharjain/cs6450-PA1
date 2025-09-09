@@ -13,6 +13,9 @@ The next figure illustrates how our implementation scales with the number of cli
 
 This clearly demonstrates that the system maintains strong scalability as client load increases.
 
+![Server CPU and Memory Usage](htop.png)
+
+The cpu usage is near 100% for nearly all the cores on the server indicating that the server is close to processing as many requests as is possible.
 
 ## 2. Design
 We began by running the baseline code without modifications, achieving a throughput of approximately 16,000 operations per second on four nodes. To improve performance, we introduced parallelism by launching a separate goroutine for each client request, which increased throughput to around 32,000 on four nodes.
