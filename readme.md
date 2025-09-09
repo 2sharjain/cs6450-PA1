@@ -5,6 +5,10 @@ The graph below highlights the trend in throughput as the batch size varies:
 
 ![Throughput vs Batch Size](Figure_1.png)
 
+Note that all the numbers have been colleted by taking the mean of 3 trial runs. It is observed that performance significantly improves with increasing the batch size since this reduces the number of RPC calls while making each one more effective. However, the benefit plateaus at a batch size of 512.
+
+The plot below shows how our implementation scales as the number of cliencts increases
+
 
 ## 2. Design
 We began by running the baseline code without modifications, achieving a throughput of approximately 16,000 operations per second on four nodes. To improve performance, we introduced parallelism by launching a separate goroutine for each client request, which increased throughput to around 32,000 on four nodes.
