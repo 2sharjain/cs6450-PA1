@@ -1,6 +1,7 @@
 ## 1. Results
 
 With our implementation we get the best throughput of 5762763 op/s (~5.7M) with a batch size of 512. The following graph highlights the trend in the throughput varying with the batch size
+![Throughput vs Batch Size](Figure_1.png)
 
 
 ## 2. Design
