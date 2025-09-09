@@ -8,7 +8,7 @@ SERVER_PKG := ./kvs/server
 CLIENT_PKG := ./kvs/client
 
 # Go parameters
-GOCMD := go
+GOCMD := /usr/local/go/bin/go 
 GOBUILD := $(GOCMD) build
 GOCLEAN := $(GOCMD) clean
 GOTEST := $(GOCMD) test

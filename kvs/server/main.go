@@ -40,27 +40,32 @@ func NewKVService() *KVService {
 	return kvs
 }
 
-func (kv *KVService) Get(request *kvs.GetRequest, response *kvs.GetResponse) error {
+func (kv *KVService) Get(request *[]kvs.GetRequest, response *[]kvs.GetResponse) error {
 	kv.Lock()
 	defer kv.Unlock()
-
-	kv.stats.gets++
-
-	if value, found := kv.mp[request.Key]; found {
-		response.Value = value
+	for _, req := range *request {
+		kv.stats.gets++
+		if value, found := kv.mp[req.Key]; found {
+			var temp kvs.GetResponse
+			temp.Value = value
+			*response = append(*response, temp)
+		
+		} else {
+			var temp kvs.GetResponse
+			temp.Value = ""
+			*response = append(*response, temp)
+		}
 	}
-
 	return nil
 }
 
-func (kv *KVService) Put(request *kvs.PutRequest, response *kvs.PutResponse) error {
+func (kv *KVService) Put(request []*kvs.PutRequest, response *kvs.PutResponse) error {
 	kv.Lock()
 	defer kv.Unlock()
-
-	kv.stats.puts++
-
-	kv.mp[request.Key] = request.Value
-
+	for _, req := range request {	
+		kv.stats.puts++
+		kv.mp[req.Key] = req.Value
+	}
 	return nil
 }
 
