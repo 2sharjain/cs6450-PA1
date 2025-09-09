@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/rpc"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/rstutsman/cs6450-labs/kvs"
@@ -27,7 +28,7 @@ func (s *Stats) Sub(prev *Stats) Stats {
 
 type KVService struct {
 	sync.Mutex
-	mp        map[string]string
+	mp        sync.Map
 	stats     Stats
 	prevStats Stats
 	lastPrint time.Time
@@ -35,21 +36,26 @@ type KVService struct {
 
 func NewKVService() *KVService {
 	kvs := &KVService{}
-	kvs.mp = make(map[string]string)
+	// kvs.mp = make(map[string]string)
 	kvs.lastPrint = time.Now()
 	return kvs
 }
 
 func (kv *KVService) Get(request *[]kvs.GetRequest, response *[]kvs.GetResponse) error {
-	kv.Lock()
-	defer kv.Unlock()
+	// kv.Lock()
+	// defer kv.Unlock()
 	for _, req := range *request {
-		kv.stats.gets++
-		if value, found := kv.mp[req.Key]; found {
+		// kv.stats.gets++
+		atomic.AddUint64(&kv.stats.gets, 1)
+		if value, found := kv.mp.Load(req.Key); found {
 			var temp kvs.GetResponse
-			temp.Value = value
+			if str, ok := value.(string); ok { // type assertion
+				temp.Value = str
+			} else {
+				// handle unexpected type stored in sync.Map
+				temp.Value = ""
+			}			
 			*response = append(*response, temp)
-		
 		} else {
 			var temp kvs.GetResponse
 			temp.Value = ""
@@ -61,11 +67,12 @@ func (kv *KVService) Get(request *[]kvs.GetRequest, response *[]kvs.GetResponse)
 }
 
 func (kv *KVService) Put(request []*kvs.PutRequest, response *kvs.PutResponse) error {
-	kv.Lock()
-	defer kv.Unlock()
+	// kv.Lock()
+	// defer kv.Unlock()
 	for _, req := range request {	
-		kv.stats.puts++
-		kv.mp[req.Key] = req.Value
+		//kv.stats.puts++
+		atomic.AddUint64(&kv.stats.puts, 1)
+		kv.mp.Store(req.Key, req.Value)
 	}
 	return nil
 }
@@ -105,6 +112,7 @@ func main() {
 	fmt.Printf("Starting KVS server on :%s\n", *port)
 
 	go func() {
+		time.Sleep(10 * time.Second)
 		for {
 			kvs.printStats()
 			time.Sleep(1 * time.Second)

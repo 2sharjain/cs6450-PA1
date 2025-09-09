@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
-	"sync"
+	//"sync"
 
 	"github.com/rstutsman/cs6450-labs/kvs"
 )
@@ -50,7 +50,7 @@ func (client *Client) Put(putQueue *[]kvs.PutRequest) {
 }
 
 func runClient(id int, addr string, done *atomic.Bool, workload *kvs.Workload, resultsCh chan<- uint64) {
-	var mu sync.Mutex
+	// var mu sync.Mutex
 	client := Dial(addr)
 
 	value := strings.Repeat("x", 128)
@@ -76,9 +76,10 @@ func runClient(id int, addr string, done *atomic.Bool, workload *kvs.Workload, r
 					go func(){
 						client.Get(&batch) //Change the parameter to queue
 						//getQueue = nil
-						mu.Lock()
-						opsCompleted+=batchSize
-						mu.Unlock()
+						// mu.Lock()
+						// opsCompleted+=batchSize
+						// mu.Unlock()
+						atomic.AddUint64(&opsCompleted, batchSize)
 					}()
 			} else {
 				putQueue = append(putQueue, kvs.PutRequest{Key: key, Value: value})
@@ -89,9 +90,10 @@ func runClient(id int, addr string, done *atomic.Bool, workload *kvs.Workload, r
 					go func(){
 						client.Put(&batch) // fix it
 						//putQueue = nil
-						mu.Lock()
-						opsCompleted+=batchSize
-						mu.Unlock()
+						// mu.Lock()
+						// opsCompleted+=batchSize
+						// mu.Unlock()
+						atomic.AddUint64(&opsCompleted, batchSize)
 					}()
 					putQueue = make([]kvs.PutRequest, 0, batchSize)	
 				}
@@ -121,7 +123,7 @@ func main() {
 	flag.Var(&hosts, "hosts", "Comma-separated list of host:ports to connect to")
 	theta := flag.Float64("theta", 0.99, "Zipfian distribution skew parameter")
 	workload := flag.String("workload", "YCSB-B", "Workload type (YCSB-A, YCSB-B, YCSB-C)")
-	secs := flag.Int("secs", 30, "Duration in seconds for each client to run")
+	secs := flag.Int("secs", 60, "Duration in seconds for each client to run")
 	flag.Parse()
 
 	if len(hosts) == 0 {
