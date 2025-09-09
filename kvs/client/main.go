@@ -55,7 +55,7 @@ func runClient(id int, addr string, done *atomic.Bool, workload *kvs.Workload, r
 
 	value := strings.Repeat("x", 128)
 	const numThreads = 1024
-	const batchSize = 32
+	const batchSize = 512
 
 	opsCompleted := uint64(0)
 
@@ -70,6 +70,9 @@ func runClient(id int, addr string, done *atomic.Bool, workload *kvs.Workload, r
 				if(len(getQueue) == batchSize){
 					batch := make([]kvs.GetRequest, batchSize)
     				copy(batch, getQueue)
+					getQueue = make([]kvs.GetRequest, 0, batchSize)	
+
+
 					go func(){
 						client.Get(&batch) //Change the parameter to queue
 						//getQueue = nil
@@ -77,12 +80,12 @@ func runClient(id int, addr string, done *atomic.Bool, workload *kvs.Workload, r
 						opsCompleted+=batchSize
 						mu.Unlock()
 					}()
-					getQueue = make([]kvs.GetRequest, 0, batchSize)			
 			} else {
 				putQueue = append(putQueue, kvs.PutRequest{Key: key, Value: value})
 				if  len(putQueue) == batchSize {
 					batch := make([]kvs.PutRequest, batchSize)
 					copy(batch, putQueue)
+
 					go func(){
 						client.Put(&batch) // fix it
 						//putQueue = nil
@@ -95,53 +98,11 @@ func runClient(id int, addr string, done *atomic.Bool, workload *kvs.Workload, r
 			}
 		}
 	}
-		fmt.Printf("Client %d finished operations.\n", id)
-		resultsCh <- opsCompleted
 	}
+	resultsCh <- opsCompleted
+
 }
 
-// func runClient(id int, addr string, done *atomic.Bool, workload *kvs.Workload, resultsCh chan<- uint64) {
-// 	client := Dial(addr)
-
-// 	value := strings.Repeat("x", 128)
-// 	const numThreads = 1024
-// 	const batchSize = 64
-
-// 	opsCompleted := uint64(0)
-// 	getQueue := [batchSize]GetRequest{}
-// 	putQueue := [batchSize]PutRequest{}
-
-//     // item := queue[0]
-//     // queue = queue[1:]
-// 	for !done.Load() {
-// 		for j := 0; j < numThreads; j++ {
-// 			op := workload.Next()
-// 			key := fmt.Sprintf("%d", op.Key)
-
-// 			if op.IsRead {
-// 				getQueue = append(getQueue, GetRequest{Key: key})
-// 				if( len(getQueue) == batchSize ) {
-
-// 					go func(){
-// 					client.Get(key) //Change the parameter to queue
-// 				}()
-
-// 				}
-				
-// 			} else {
-// 				putQueue = append(putQueue, PutRequest{Key: key, Value: value})
-// 				go func(){
-// 					client.Put(key, value)
-// 				}()
-// 			}
-// 			opsCompleted++
-// 		}
-// 	}
-
-// 	fmt.Printf("Client %d finished operations.\n", id)
-
-// 	resultsCh <- opsCompleted
-// }
 
 type HostList []string
 
@@ -189,9 +150,7 @@ func main() {
 
 	time.Sleep(time.Duration(*secs) * time.Second)
 	done.Store(true)
-
 	opsCompleted := <-resultsCh
-
 	elapsed := time.Since(start)
 
 	opsPerSec := float64(opsCompleted) / elapsed.Seconds()

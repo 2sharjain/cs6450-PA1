@@ -56,6 +56,7 @@ func (kv *KVService) Get(request *[]kvs.GetRequest, response *[]kvs.GetResponse)
 			*response = append(*response, temp)
 		}
 	}
+
 	return nil
 }
 
