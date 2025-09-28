@@ -8,103 +8,89 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
-	//"sync"
 
 	"github.com/rstutsman/cs6450-labs/kvs"
 )
 
 type Client struct {
-	rpcClient *rpc.Client
+	rpcClients  []*rpc.Client
+	TxnStateMap map[string]kvs.TransactionState
 }
 
-func Dial(addr string) *Client {
-	rpcClient, err := rpc.DialHTTP("tcp", addr)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	return &Client{rpcClient}
-}
-
-func (client *Client) Get(getQueue *[]kvs.GetRequest) *[]kvs.GetResponse {
-	
-	response := make([]kvs.GetResponse, 0)
-	err := client.rpcClient.Call("KVService.Get", &getQueue, &response)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	return &response
-}
-
-func (client *Client) Put(putQueue *[]kvs.PutRequest) {
-	// request := kvs.PutRequest{
-	// 	Key:   key,
-	// 	Value: value,
-	// }
-	response := kvs.PutResponse{}
-	err := client.rpcClient.Call("KVService.Put", &putQueue, &response)
-	if err != nil {
-		log.Fatal(err)
-	}
-}
-
-func runClient(id int, addr string, done *atomic.Bool, workload *kvs.Workload, resultsCh chan<- uint64) {
-	// var mu sync.Mutex
-	client := Dial(addr)
-
-	value := strings.Repeat("x", 128)
-	const numThreads = 1024
-	const batchSize = 512
-
-	opsCompleted := uint64(0)
-
-	getQueue := make([]kvs.GetRequest, 0, batchSize)
-	putQueue := make([]kvs.PutRequest, 0, batchSize)
-	for !done.Load() {
-		for j := 0; j < numThreads; j++ {
-			op := workload.Next()
-			key := fmt.Sprintf("%d", op.Key)
-			if op.IsRead {
-				getQueue = append(getQueue, kvs.GetRequest{Key: key})
-				if(len(getQueue) == batchSize){
-					batch := make([]kvs.GetRequest, batchSize)
-    				copy(batch, getQueue)
-					getQueue = make([]kvs.GetRequest, 0, batchSize)	
-
-
-					go func(){
-						client.Get(&batch) //Change the parameter to queue
-						//getQueue = nil
-						// mu.Lock()
-						// opsCompleted+=batchSize
-						// mu.Unlock()
-						atomic.AddUint64(&opsCompleted, batchSize)
-					}()
-			} else {
-				putQueue = append(putQueue, kvs.PutRequest{Key: key, Value: value})
-				if  len(putQueue) == batchSize {
-					batch := make([]kvs.PutRequest, batchSize)
-					copy(batch, putQueue)
-
-					go func(){
-						client.Put(&batch) // fix it
-						//putQueue = nil
-						// mu.Lock()
-						// opsCompleted+=batchSize
-						// mu.Unlock()
-						atomic.AddUint64(&opsCompleted, batchSize)
-					}()
-					putQueue = make([]kvs.PutRequest, 0, batchSize)	
-				}
-			}
+func Dial(addrs []string) *Client {
+	rpcClients := make([]*rpc.Client, len(addrs))
+	var err error
+	for i := 0; i < len(addrs); i++ {
+		rpcClients[i], err = rpc.DialHTTP("tcp", addrs[i])
+		if err != nil {
+			log.Fatal(err)
 		}
 	}
-	}
-	resultsCh <- opsCompleted
-
+	return &Client{rpcClients, make(map[string]kvs.TransactionState)}
 }
 
+func (client *Client) Get(key string, target_idx int) string {
+	request := kvs.GetRequest{
+		Key: key,
+	}
+	response := kvs.GetResponse{}
+	cxn := client.rpcClients[target_idx]
+	err := cxn.Call("KVService.Get", &request, &response)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return response.Value
+}
+
+func (client *Client) Put(key string, value string, target_idx int) {
+	request := kvs.PutRequest{
+		Key:   key,
+		Value: value,
+	}
+	response := kvs.PutResponse{}
+	cxn := client.rpcClients[target_idx]
+	err := cxn.Call("KVService.Put", &request, &response)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func runClient(id int, addrs []string, done *atomic.Bool, workload *kvs.Workload, resultsCh chan<- uint64) {
+
+	client := Dial(addrs)
+	value := strings.Repeat("x", 128)
+	const batchSize = 1024
+	opsCompleted := uint64(0)
+	var txn = kvs.Transaction{}
+
+	for !done.Load() {
+		for j := 0; j < batchSize; j++ {
+			for i := 0; i < 3; i++ {
+				txn.Ops[i] = workload.Next()
+			}
+			txn.Transaction_id, _ = kvs.RandString()
+
+			client.TxnStateMap[txn.Transaction_id] = kvs.TransactionState{}
+
+			for i := 0; i < 3; i++ {
+				var key = fmt.Sprintf("%d", txn.Ops[i].Key)
+				target_id := kvs.HashKeyMod(key, len(addrs))
+				if txn.Ops[i].IsRead {
+					client.Get(key, target_id)
+				} else {
+					client.Put(key, value, target_id)
+				}
+			}
+
+			opsCompleted++
+		}
+	}
+
+	fmt.Printf("Client %d finished operations.\n", id)
+
+	resultsCh <- opsCompleted
+}
 
 type HostList []string
 
@@ -123,7 +109,7 @@ func main() {
 	flag.Var(&hosts, "hosts", "Comma-separated list of host:ports to connect to")
 	theta := flag.Float64("theta", 0.99, "Zipfian distribution skew parameter")
 	workload := flag.String("workload", "YCSB-B", "Workload type (YCSB-A, YCSB-B, YCSB-C)")
-	secs := flag.Int("secs", 60, "Duration in seconds for each client to run")
+	secs := flag.Int("secs", 30, "Duration in seconds for each client to run")
 	flag.Parse()
 
 	if len(hosts) == 0 {
@@ -142,17 +128,19 @@ func main() {
 
 	done := atomic.Bool{}
 	resultsCh := make(chan uint64)
-
-	host := hosts[0]
+	//numHosts := len(hosts)
+	//host := hosts[0]
 	clientId := 0
 	go func(clientId int) {
 		workload := kvs.NewWorkload(*workload, *theta)
-		runClient(clientId, host, &done, workload, resultsCh)
+		runClient(clientId, hosts, &done, workload, resultsCh)
 	}(clientId)
 
 	time.Sleep(time.Duration(*secs) * time.Second)
 	done.Store(true)
+
 	opsCompleted := <-resultsCh
+
 	elapsed := time.Since(start)
 
 	opsPerSec := float64(opsCompleted) / elapsed.Seconds()
