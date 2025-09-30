@@ -56,6 +56,21 @@ func (client *Client) Put(key string, value string, target_idx int) {
 	}
 }
 
+func sendTransaction(client *Client, txn kvs.Transaction, addrs []string) {
+	for i := 0; i < 3; i++ {
+		var key = fmt.Sprintf("%d", txn.Ops[i].Key)
+		target_id := kvs.HashKeyMod(key, len(addrs))
+		if txn.Ops[i].IsRead {
+			go func() {
+				client.Get(key, target_id)
+			}()
+		} else {
+			go func() {
+				client.Put(key, value, target_id)
+			}()
+		}
+	}
+}
 func runClient(id int, addrs []string, done *atomic.Bool, workload *kvs.Workload, resultsCh chan<- uint64) {
 
 	client := Dial(addrs)
@@ -70,19 +85,8 @@ func runClient(id int, addrs []string, done *atomic.Bool, workload *kvs.Workload
 				txn.Ops[i] = workload.Next()
 			}
 			txn.Transaction_id, _ = kvs.RandString()
-
 			client.TxnStateMap[txn.Transaction_id] = kvs.TransactionState{}
-
-			for i := 0; i < 3; i++ {
-				var key = fmt.Sprintf("%d", txn.Ops[i].Key)
-				target_id := kvs.HashKeyMod(key, len(addrs))
-				if txn.Ops[i].IsRead {
-					client.Get(key, target_id)
-				} else {
-					client.Put(key, value, target_id)
-				}
-			}
-
+			go sendTransaction(client, txn, addrs)
 			opsCompleted++
 		}
 	}

@@ -27,17 +27,22 @@ type TransactionState struct {
 type PutRequest struct {
 	Key   string
 	Value string
+	Commit bool // true for commit, false for abort
 }
 
 type PutResponse struct {
+	Vote bool // true for yes, false for no
+	ack bool // true for ack, false for nack
 }
 
 type GetRequest struct {
 	Key string
+	Commit bool // true for commit, false for abort
 }
 
 type GetResponse struct {
-	Value string
+	Value string //This is the value
+	Vote bool   // true for yes, false for no
 }
 
 // HashKey returns the 64-bit FNV-1a hash of the supplied string.

@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/rpc"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/rstutsman/cs6450-labs/kvs"
@@ -26,54 +25,87 @@ func (s *Stats) Sub(prev *Stats) Stats {
 	return r
 }
 
+type LockMap struct {
+    mu    sync.Mutex
+    locks map[string]*sync.Mutex
+}
 type KVService struct {
 	sync.Mutex
-	mp        sync.Map
+	mp        map[string]string
 	stats     Stats
 	prevStats Stats
 	lastPrint time.Time
+	lockMap   LockMap
 }
 
 func NewKVService() *KVService {
 	kvs := &KVService{}
-	// kvs.mp = make(map[string]string)
+	kvs.mp = make(map[string]string)
 	kvs.lastPrint = time.Now()
 	return kvs
 }
 
-func (kv *KVService) Get(request *[]kvs.GetRequest, response *[]kvs.GetResponse) error {
-	// kv.Lock()
-	// defer kv.Unlock()
-	for _, req := range *request {
-		// kv.stats.gets++
-		atomic.AddUint64(&kv.stats.gets, 1)
-		if value, found := kv.mp.Load(req.Key); found {
-			var temp kvs.GetResponse
-			if str, ok := value.(string); ok { // type assertion
-				temp.Value = str
-			} else {
-				// handle unexpected type stored in sync.Map
-				temp.Value = ""
-			}			
-			*response = append(*response, temp)
-		} else {
-			var temp kvs.GetResponse
-			temp.Value = ""
-			*response = append(*response, temp)
+
+
+func (kv *KVService) Get(request *kvs.GetRequest, response *kvs.GetResponse) error {
+
+	if !request.Commit { //phase1
+		if value, found := kv.mp[request.Key]; found {
+			if kv.lockMap.locks[request.Key].TryLock() {
+				response.Vote = true
+			}
+			else{
+				response.Vote = false
+			}
 		}
+		else{
+			response.Vote = true
+		}
+	}
+	else{
+		response.Value = kv.mp[request.key]
+		kv.lockMap.locks[request.Key].Unlock()
 	}
 
 	return nil
 }
 
-func (kv *KVService) Put(request []*kvs.PutRequest, response *kvs.PutResponse) error {
-	// kv.Lock()
-	// defer kv.Unlock()
-	for _, req := range request {	
-		//kv.stats.puts++
-		atomic.AddUint64(&kv.stats.puts, 1)
-		kv.mp.Store(req.Key, req.Value)
+func (kv *KVService) Put(request *kvs.PutRequest, response *kvs.PutResponse) error {
+	response.vote=false
+	if !request.Commit { //phase1
+		if value, found := kv.mp[request.Key]; found {
+			if kv.lockMap.locks[request.Key].TryLock() {
+				response.Vote = true
+			}
+		}
+		else{
+			if kv.TryLock(){
+				if kv.lockMap.mu.TryLock(){
+					kv.lockMap.locks[request.Key] = &sync.Mutex 
+					if kv.lockMap.locks[request.Key].TryLock(){
+						response.Vote=true
+					}
+				}
+			}
+
+			
+		}
 	}
+	else{//Phase2
+		if value, found := kv.mp[request.Key]; found {
+			kv.mp[request.Key] = response.Value
+			kv.lockMap.locks[request.Key].Unlock()
+			response.ack = True
+		}
+		else{
+			kv.mp[request.Key] = response.Value
+			kv.lockMap.locks[request.Key].Unlock()
+			kv.lockMap.mu.UnLock()
+			kv.Unlock()
+			response.ack = True
+		}
+	}
+
 	return nil
 }
 
@@ -112,7 +144,6 @@ func main() {
 	fmt.Printf("Starting KVS server on :%s\n", *port)
 
 	go func() {
-		time.Sleep(10 * time.Second)
 		for {
 			kvs.printStats()
 			time.Sleep(1 * time.Second)
