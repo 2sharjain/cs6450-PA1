@@ -14,7 +14,6 @@ import (
 
 type Client struct {
 	rpcClients  []*rpc.Client
-	TxnStateMap map[string]kvs.TransactionState
 }
 
 func Dial(addrs []string) *Client {
@@ -29,47 +28,121 @@ func Dial(addrs []string) *Client {
 	return &Client{rpcClients, make(map[string]kvs.TransactionState)}
 }
 
-func (client *Client) Get(key string, target_idx int) string {
-	request := kvs.GetRequest{
-		Key: key,
-	}
-	response := kvs.GetResponse{}
-	cxn := client.rpcClients[target_idx]
-	err := cxn.Call("KVService.Get", &request, &response)
-	if err != nil {
-		log.Fatal(err)
-	}
+func (client *Client) Get(key string, target_idx int, txn_id string, phase1 bool) (string, bool) {
+	if phase1 {
+		request := kvs.GetRequest{
+			Key:   key,
+			Commit: false,
+			TxnID: txn_id,
+		}
+		response := kvs.GetResponse{}
+		cxn := client.rpcClients[target_idx]
+		err := cxn.Call("KVService.Get", &request, &response)
+		if err != nil {
+			log.Fatal(err)
+		}
 
-	return response.Value
+		return response.Value, response.Vote
+
+	}
+	else{
+		request := kvs.GetRequest{
+			Key:   key,
+			Commit: true,
+			TxnID: txn_id,
+		}
+		response := kvs.GetResponse{}
+		cxn := client.rpcClients[target_idx]
+		err := cxn.Call("KVService.Get", &request, &response)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		return response.Value, response.Vote
+	}
+	
 }
 
-func (client *Client) Put(key string, value string, target_idx int) {
-	request := kvs.PutRequest{
-		Key:   key,
-		Value: value,
+func (client *Client) Put(key string, value string, target_idx int, phase1 bool) (bool, bool) {
+
+
+	if phase1 {
+		request := kvs.PutRequest{
+			Key:   key,
+			Value: value,
+			Commit: false,
+			TxnID: txn_id,
+		}
+		response := kvs.PutResponse{}
+		cxn := client.rpcClients[target_idx]
+		err := cxn.Call("KVService.Put", &request, &response)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		return response.Vote, response.Ack
+
+
 	}
-	response := kvs.PutResponse{}
-	cxn := client.rpcClients[target_idx]
-	err := cxn.Call("KVService.Put", &request, &response)
-	if err != nil {
-		log.Fatal(err)
-	}
+	else{
+		request := kvs.GetRequest{
+			Key:   key,
+			Value: value,
+			Commit: true,
+			TxnID: txn_id,
+		}
+		response := kvs.PutResponse{}
+		cxn := client.rpcClients[target_idx]
+		err := cxn.Call("KVService.Put", &request, &response)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		return response.Vote, response.Ack
+	}	
 }
 
-func sendTransaction(client *Client, txn kvs.Transaction, addrs []string) {
-	for i := 0; i < 3; i++ {
-		var key = fmt.Sprintf("%d", txn.Ops[i].Key)
-		target_id := kvs.HashKeyMod(key, len(addrs))
-		if txn.Ops[i].IsRead {
-			go func() {
-				client.Get(key, target_id)
-			}()
-		} else {
-			go func() {
-				client.Put(key, value, target_id)
-			}()
+
+
+func sendTransaction(client *Client, txn kvs.Transaction, addrs []string, txnstate kvs.TransactionState) {
+	//Phase1
+	if{txnstate.states[0]=0 and txnstate.states[1]=0 and txnstate.states[2]=0}{
+		for i := 0; i < 3; i++ {
+			var key = fmt.Sprintf("%d", txn.Ops[i].Key)
+			target_id := kvs.HashKeyMod(key, len(addrs))
+			if txn.Ops[i].IsRead {
+					val, vote = client.Get(key, target_id, txn.Transaction_id, true)
+			} else {
+					vote, ack = client.Put(key, value, target_id, true)
+			}
+			if vote txnstate.states[i]= 1 else txnstate.states[i]= 2
+		}
+
+	}
+
+	//abort
+	if{txnstate.states[0]== 2 or txnstate.states[1]== 2 or txnstate.states[2]== 2}{
+
+		go sendTransaction(client, txn, addrs, kvs.TransactionState{})
+		return
+	}
+	//Phase2
+	if{txnstate.states[0]== 1 and txnstate.states[1]== 1 and txnstate.states[2]== 1}{
+		for i := 0; i < 3; i++ {
+
+			if txn.Ops[i].IsRead {
+				val, _ = client.Get(key, target_id, txn.Transaction_id, false)
+			}
+			else {
+				vote, ack = client.Put(key, value, target_id, false)
+			}
 		}
 	}
+
+
+
+	
+	//Phase2
 }
 func runClient(id int, addrs []string, done *atomic.Bool, workload *kvs.Workload, resultsCh chan<- uint64) {
 
@@ -85,8 +158,9 @@ func runClient(id int, addrs []string, done *atomic.Bool, workload *kvs.Workload
 				txn.Ops[i] = workload.Next()
 			}
 			txn.Transaction_id, _ = kvs.RandString()
-			client.TxnStateMap[txn.Transaction_id] = kvs.TransactionState{}
-			go sendTransaction(client, txn, addrs)
+			// client.TxnStateMap[txn.Transaction_id] = kvs.TransactionState{}
+			var txnstate = kvs.TransactionState{}
+			go sendTransaction(client, txn, addrs, txnstate)
 			opsCompleted++
 		}
 	}

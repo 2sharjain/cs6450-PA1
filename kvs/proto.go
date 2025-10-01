@@ -19,25 +19,25 @@ type Transaction struct {
 // 2 no
 // 3 waiting 2
 type TransactionState struct {
-	State_1 int
-	State_2 int
-	State_3 int
+	states [3]int
 }
 
 type PutRequest struct {
 	Key   string
 	Value string
-	Commit bool // true for commit, false for abort
+	Commit bool 
+	TxnID string// true for commit, false for abort
 }
 
 type PutResponse struct {
 	Vote bool // true for yes, false for no
-	ack bool // true for ack, false for nack
+	Ack bool // true for ack, false for nack
 }
 
 type GetRequest struct {
 	Key string
 	Commit bool // true for commit, false for abort
+	TxnID string // transaction id
 }
 
 type GetResponse struct {

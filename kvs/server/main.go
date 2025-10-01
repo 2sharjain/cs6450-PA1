@@ -25,17 +25,13 @@ func (s *Stats) Sub(prev *Stats) Stats {
 	return r
 }
 
-type LockMap struct {
-    mu    sync.Mutex
-    locks map[string]*sync.Mutex
-}
+
 type KVService struct {
 	sync.Mutex
 	mp        map[string]string
 	stats     Stats
 	prevStats Stats
 	lastPrint time.Time
-	lockMap   LockMap
 }
 
 func NewKVService() *KVService {
@@ -45,13 +41,54 @@ func NewKVService() *KVService {
 	return kvs
 }
 
+type Locks struct {
+    mu    sync.Mutex
+    writeTxn string
+	readTxns map[string]string
+}
+
+var lockMap sync.Map // map from keys to locks
+
+func (l *Locks) SLock(txn_id string) bool {
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.writeTxn == "" {
+		l.readTxns[txn_id] = "0"
+		return true
+	}
+	return false
+}
+
+func (l *Locks) SUnlock(txn_id string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.readTxns, txn_id)
+	return true
+}
+
+func (l *Locks) XLock(txn_id string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.writeTxn == "" && len(l.readTxns) == 0 {
+		l.writeTxn = txn_id
+		return true
+	}
+	return false
+}
+func (l *Locks)XUnlock() bool{
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.writeTxn = ""
+	return true
+}
 
 
 func (kv *KVService) Get(request *kvs.GetRequest, response *kvs.GetResponse) error {
 
 	if !request.Commit { //phase1
 		if value, found := kv.mp[request.Key]; found {
-			if kv.lockMap.locks[request.Key].TryLock() {
+			if lockMap[request.Key].SLock(request.TxnID) {
 				response.Vote = true
 			}
 			else{
@@ -60,11 +97,11 @@ func (kv *KVService) Get(request *kvs.GetRequest, response *kvs.GetResponse) err
 		}
 		else{
 			response.Vote = true
-		}
+		} 
 	}
-	else{
-		response.Value = kv.mp[request.key]
-		kv.lockMap.locks[request.Key].Unlock()
+	else{//Phase 2
+		response.Value = kv.mp[request.Key]
+		lockMap[request.Key].SUnlock(request.TxnID)
 	}
 
 	return nil
@@ -74,33 +111,26 @@ func (kv *KVService) Put(request *kvs.PutRequest, response *kvs.PutResponse) err
 	response.vote=false
 	if !request.Commit { //phase1
 		if value, found := kv.mp[request.Key]; found {
-			if kv.lockMap.locks[request.Key].TryLock() {
+			if lockMap[request.Key].XLock(request.TxnID){
 				response.Vote = true
 			}
 		}
 		else{
-			if kv.TryLock(){
-				if kv.lockMap.mu.TryLock(){
-					kv.lockMap.locks[request.Key] = &sync.Mutex 
-					if kv.lockMap.locks[request.Key].TryLock(){
-						response.Vote=true
-					}
-				}
+			lockMap.Store(request.Key, &Locks{writeTxn: "", readTxns: make(map[string]string)})
+			if lockMap[request.Key].XLock(request.TxnID) && kv.TryLock(){
+				response.Vote = true
 			}
-
-			
 		}
 	}
 	else{//Phase2
 		if value, found := kv.mp[request.Key]; found {
 			kv.mp[request.Key] = response.Value
-			kv.lockMap.locks[request.Key].Unlock()
+			lockMap[request.Key].XUnlock()
 			response.ack = True
 		}
 		else{
 			kv.mp[request.Key] = response.Value
-			kv.lockMap.locks[request.Key].Unlock()
-			kv.lockMap.mu.UnLock()
+			lockMap[request.Key].XUnlock()
 			kv.Unlock()
 			response.ack = True
 		}
