@@ -22,6 +22,16 @@ type TransactionState struct {
 	states [3]int
 }
 
+type AbortRequest struct {
+	Key string
+	TxnID string
+	IsRead bool // transaction id
+}
+
+type AbortResponse struct {
+	Ack bool // true for yes, false for no
+}
+
 type PutRequest struct {
 	Key   string
 	Value string

@@ -63,7 +63,7 @@ func (client *Client) Get(key string, target_idx int, txn_id string, phase1 bool
 	
 }
 
-func (client *Client) Put(key string, value string, target_idx int, phase1 bool) (bool, bool) {
+func (client *Client) Put(key string, value string, target_idx int, txn_id string, phase1 bool) (bool, bool) {
 
 
 	if phase1 {
@@ -103,17 +103,36 @@ func (client *Client) Put(key string, value string, target_idx int, phase1 bool)
 }
 
 
+func (client *Client) Abort(key string, target_idx int, txn_id string, is_read bool) bool {
+	request := kvs.AbortRequest{
+		Key:   key,
+		TxnID: txn_id,
+		IsRead: is_read,
+
+	}
+	response := kvs.AbortResponse{}
+	cxn := client.rpcClients[target_idx]
+	err := cxn.Call("KVService.Abort", &request, &response)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return response.Vote
+
+	
+}
+
 
 func sendTransaction(client *Client, txn kvs.Transaction, addrs []string, txnstate kvs.TransactionState) {
 	//Phase1
 	if{txnstate.states[0]=0 and txnstate.states[1]=0 and txnstate.states[2]=0}{
 		for i := 0; i < 3; i++ {
-			var key = fmt.Sprintf("%d", txn.Ops[i].Key)
+			key := fmt.Sprintf("%d", txn.Ops[i].Key)
 			target_id := kvs.HashKeyMod(key, len(addrs))
 			if txn.Ops[i].IsRead {
 					val, vote = client.Get(key, target_id, txn.Transaction_id, true)
 			} else {
-					vote, ack = client.Put(key, value, target_id, true)
+					vote, ack = client.Put(key, value, target_id, txn.Transaction_id true)
 			}
 			if vote txnstate.states[i]= 1 else txnstate.states[i]= 2
 		}
@@ -123,26 +142,30 @@ func sendTransaction(client *Client, txn kvs.Transaction, addrs []string, txnsta
 	//abort
 	if{txnstate.states[0]== 2 or txnstate.states[1]== 2 or txnstate.states[2]== 2}{
 
+		//send rpc call to all servers to abort
+		for i := 0; i < 3; i++ {
+			key := fmt.Sprintf("%d", txn.Ops[i].Key)
+			target_id := kvs.HashKeyMod(key, len(addrs))
+			if txnstate.states[i] !=2 {
+				client.Abort(key, target_id, txn.Transaction_id, txn.Ops[i].IsRea)
+			}
+		}
 		go sendTransaction(client, txn, addrs, kvs.TransactionState{})
 		return
 	}
 	//Phase2
 	if{txnstate.states[0]== 1 and txnstate.states[1]== 1 and txnstate.states[2]== 1}{
 		for i := 0; i < 3; i++ {
-
+			var key = fmt.Sprintf("%d", txn.Ops[i].Key)
+			target_id := kvs.HashKeyMod(key, len(addrs))
 			if txn.Ops[i].IsRead {
 				val, _ = client.Get(key, target_id, txn.Transaction_id, false)
 			}
 			else {
-				vote, ack = client.Put(key, value, target_id, false)
+				vote, ack = client.Put(key, value, target_id, txn.Transaction_id, false)
 			}
 		}
 	}
-
-
-
-	
-	//Phase2
 }
 func runClient(id int, addrs []string, done *atomic.Bool, workload *kvs.Workload, resultsCh chan<- uint64) {
 

@@ -84,15 +84,31 @@ func (l *Locks)XUnlock() bool{
 }
 
 
-func (kv *KVService) Get(request *kvs.GetRequest, response *kvs.GetResponse) error {
+func (kv *KVService) Abort(request *kvs.GetRequest, response *kvs.GetResponse) error {
 
+
+	if request.IsRead {
+		lockMap[request.Key].SUnlock(request.TxnID)
+	}else{
+		if value, found := kv.mp[request.Key]; found {
+			lockMap[request.Key].XUnlock()
+		}
+		else{
+			delete(lockMap, request.Key)
+			kv.Unlock()
+
+		}
+	}
+	response.Ack = true
+	return nil
+}
+
+func (kv *KVService) Get(request *kvs.GetRequest, response *kvs.GetResponse) error {
+	response.Vote = false
 	if !request.Commit { //phase1
 		if value, found := kv.mp[request.Key]; found {
 			if lockMap[request.Key].SLock(request.TxnID) {
 				response.Vote = true
-			}
-			else{
-				response.Vote = false
 			}
 		}
 		else{
