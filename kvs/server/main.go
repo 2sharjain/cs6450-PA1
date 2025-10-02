@@ -28,7 +28,7 @@ func (s *Stats) Sub(prev *Stats) Stats {
 
 type KVService struct {
 	sync.Mutex
-	mp        map[string]string
+	mp        sync.Map
 	stats     Stats
 	prevStats Stats
 	lastPrint time.Time
@@ -36,7 +36,7 @@ type KVService struct {
 
 func NewKVService() *KVService {
 	kvs := &KVService{}
-	kvs.mp = make(map[string]string)
+	kvs.mp = sync.Map{}
 	kvs.lastPrint = time.Now()
 	return kvs
 }
@@ -90,9 +90,7 @@ func (l *Locks)XUnlock() bool{
 
 
 func (kv *KVService) Abort(request *kvs.AbortRequest, response *kvs.AbortResponse) error {
-	kv.Lock()
-	_, found := kv.mp[request.Key];
-	kv.Unlock()
+	_, found := kv.mp.Load(request.Key);
 	if request.IsRead {
 		if found {
 			lockMap.mp[request.Key].SUnlock(request.TxnID)
@@ -102,7 +100,6 @@ func (kv *KVService) Abort(request *kvs.AbortRequest, response *kvs.AbortRespons
 			lockMap.mp[request.Key].XUnlock()
 		} else {
 			delete(lockMap.mp, request.Key)
-			kv.Unlock()
 		}
 	}
 	response.Ack = true
@@ -111,9 +108,8 @@ func (kv *KVService) Abort(request *kvs.AbortRequest, response *kvs.AbortRespons
 
 func (kv *KVService) Get(request *kvs.GetRequest, response *kvs.GetResponse) error {
 	response.Vote = false
-	kv.Lock()
-	_, found := kv.mp[request.Key];
-	kv.Unlock()
+	_, found := kv.mp.Load(request.Key);
+
 	if !request.Commit { //phase1
 		
 		if found {
@@ -126,7 +122,11 @@ func (kv *KVService) Get(request *kvs.GetRequest, response *kvs.GetResponse) err
 		} 
 	} else {//Phase 2
 		if found {
-			response.Value = kv.mp[request.Key]
+
+			val, ok := kv.mp.Load(request.Key)
+			if ok {
+				response.Value = val.(string)
+			}
 			lockMap.mp[request.Key].SUnlock(request.TxnID)
 
 		} else{
@@ -139,56 +139,34 @@ func (kv *KVService) Get(request *kvs.GetRequest, response *kvs.GetResponse) err
 
 func (kv *KVService) Put(request *kvs.PutRequest, response *kvs.PutResponse) error {
 	response.Vote=false
-	kv.Lock()
-	_, found := kv.mp[request.Key];
-	kv.Unlock()
+	_, found := kv.mp.Load(request.Key);
 	if !request.Commit { //phase1
-		fmt.Println("In Put at the begin rpc call")
 		if found {
-			fmt.Println("found the key")
-
 			if lockMap.mp[request.Key].XLock(request.TxnID){
 				response.Vote = true
 			}
 		} else {
-			fmt.Println("found not the key")
-
 			if lockMap.mu.TryLock(){
 				lockMap.mp[request.Key] = &Locks{readTxns: make(map[string]string)}
 				lockMap.mu.Unlock()
 
 				if lockMap.mp[request.Key].XLock(request.TxnID){
-					if kv.TryLock(){
-						fmt.Println("got the threelock")
-						kv.mp[request.Key] = ""
-						kv.Unlock()	
+					kv.mp.Store(request.Key, "")
 						response.Vote = true
-					} else {
-						lockMap.mp[request.Key].XUnlock()
-						lockMap.mu.Lock()
-						delete(lockMap.mp, request.Key)
-						lockMap.mu.Unlock()
-
-					}
 				} else {
+					lockMap.mp[request.Key].XUnlock()
 					lockMap.mu.Lock()
 					delete(lockMap.mp, request.Key)
 					lockMap.mu.Unlock()
 
 				}
-			}
+			} 
 		}
 	} else {//Phase2
-		if found {
-			kv.mp[request.Key] = request.Value
-			lockMap.mp[request.Key].XUnlock()
-			response.Ack = true
-		} else {
-			kv.mp[request.Key] = request.Value
-			lockMap.mp[request.Key].XUnlock()
-			fmt.Println("In Get, length of map is", len(kv.mp))
-			response.Ack = true
-		}
+
+		kv.mp.Store(request.Key, request.Value)
+		lockMap.mp[request.Key].XUnlock()
+		response.Ack = true
 		
 	}
 
