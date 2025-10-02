@@ -25,7 +25,7 @@ func Dial(addrs []string) *Client {
 			log.Fatal(err)
 		}
 	}
-	return &Client{rpcClients, make(map[string]kvs.TransactionState)}
+	return &Client{rpcClients}
 }
 
 func (client *Client) Get(key string, target_idx int, txn_id string, phase1 bool) (string, bool) {
@@ -44,8 +44,7 @@ func (client *Client) Get(key string, target_idx int, txn_id string, phase1 bool
 
 		return response.Value, response.Vote
 
-	}
-	else{
+	} else {
 		request := kvs.GetRequest{
 			Key:   key,
 			Commit: true,
@@ -67,6 +66,7 @@ func (client *Client) Put(key string, value string, target_idx int, txn_id strin
 
 
 	if phase1 {
+
 		request := kvs.PutRequest{
 			Key:   key,
 			Value: value,
@@ -74,18 +74,22 @@ func (client *Client) Put(key string, value string, target_idx int, txn_id strin
 			TxnID: txn_id,
 		}
 		response := kvs.PutResponse{}
+		fmt.Println("In Put before rpc call", request, response)
 		cxn := client.rpcClients[target_idx]
 		err := cxn.Call("KVService.Put", &request, &response)
+		fmt.Println("In Put after rpc call", request, response)
+
 		if err != nil {
 			log.Fatal(err)
 		}
+		fmt.Println("end of p1", response.Vote)	
 
 		return response.Vote, response.Ack
 
 
-	}
-	else{
-		request := kvs.GetRequest{
+	} else{
+		fmt.Println("In Put Phase 2")
+		request := kvs.PutRequest{
 			Key:   key,
 			Value: value,
 			Commit: true,
@@ -97,9 +101,11 @@ func (client *Client) Put(key string, value string, target_idx int, txn_id strin
 		if err != nil {
 			log.Fatal(err)
 		}
+		fmt.Println("end of p2", response.Vote)	
+
 
 		return response.Vote, response.Ack
-	}	
+	}
 }
 
 
@@ -117,7 +123,7 @@ func (client *Client) Abort(key string, target_idx int, txn_id string, is_read b
 		log.Fatal(err)
 	}
 
-	return response.Vote
+	return response.Ack
 
 	
 }
@@ -125,44 +131,53 @@ func (client *Client) Abort(key string, target_idx int, txn_id string, is_read b
 
 func sendTransaction(client *Client, txn kvs.Transaction, addrs []string, txnstate kvs.TransactionState) {
 	//Phase1
-	if{txnstate.states[0]=0 and txnstate.states[1]=0 and txnstate.states[2]=0}{
+	value := strings.Repeat("x", 128)
+	if txnstate.States[0]==0 && txnstate.States[1]==0 && txnstate.States[2]==0 {
 		for i := 0; i < 3; i++ {
+			var vote bool
 			key := fmt.Sprintf("%d", txn.Ops[i].Key)
 			target_id := kvs.HashKeyMod(key, len(addrs))
+
 			if txn.Ops[i].IsRead {
-					val, vote = client.Get(key, target_id, txn.Transaction_id, true)
+					_, vote = client.Get(key, target_id, txn.Transaction_id, true)
 			} else {
-					vote, ack = client.Put(key, value, target_id, txn.Transaction_id true)
+					vote, _ = client.Put(key, value, target_id, txn.Transaction_id, true)
 			}
-			if vote txnstate.states[i]= 1 else txnstate.states[i]= 2
+			if vote {
+				txnstate.States[i]= 1
+			} else {
+				txnstate.States[i]= 2
+			}
 		}
 
 	}
-
 	//abort
-	if{txnstate.states[0]== 2 or txnstate.states[1]== 2 or txnstate.states[2]== 2}{
+	if txnstate.States[0]== 2 || txnstate.States[1]== 2 || txnstate.States[2]== 2 {
 
 		//send rpc call to all servers to abort
 		for i := 0; i < 3; i++ {
 			key := fmt.Sprintf("%d", txn.Ops[i].Key)
 			target_id := kvs.HashKeyMod(key, len(addrs))
-			if txnstate.states[i] !=2 {
-				client.Abort(key, target_id, txn.Transaction_id, txn.Ops[i].IsRea)
+			if txnstate.States[i] !=2 {
+				fmt.Println("I am not two ")
+
+				client.Abort(key, target_id, txn.Transaction_id, txn.Ops[i].IsRead)
 			}
 		}
 		go sendTransaction(client, txn, addrs, kvs.TransactionState{})
 		return
 	}
 	//Phase2
-	if{txnstate.states[0]== 1 and txnstate.states[1]== 1 and txnstate.states[2]== 1}{
+	//var val string
+	if txnstate.States[0]== 1 && txnstate.States[1]== 1 && txnstate.States[2]== 1 {
 		for i := 0; i < 3; i++ {
 			var key = fmt.Sprintf("%d", txn.Ops[i].Key)
 			target_id := kvs.HashKeyMod(key, len(addrs))
 			if txn.Ops[i].IsRead {
-				val, _ = client.Get(key, target_id, txn.Transaction_id, false)
-			}
-			else {
-				vote, ack = client.Put(key, value, target_id, txn.Transaction_id, false)
+				fmt.Println("Phaseeeeeee 2", key, target_id, txn.Transaction_id, txnstate.States)
+				_, _ = client.Get(key, target_id, txn.Transaction_id, false)
+			} else {
+				_, _ = client.Put(key, value, target_id, txn.Transaction_id, false)
 			}
 		}
 	}
@@ -170,7 +185,7 @@ func sendTransaction(client *Client, txn kvs.Transaction, addrs []string, txnsta
 func runClient(id int, addrs []string, done *atomic.Bool, workload *kvs.Workload, resultsCh chan<- uint64) {
 
 	client := Dial(addrs)
-	value := strings.Repeat("x", 128)
+	//value := strings.Repeat("x", 128)
 	const batchSize = 1024
 	opsCompleted := uint64(0)
 	var txn = kvs.Transaction{}

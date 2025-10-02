@@ -47,7 +47,12 @@ type Locks struct {
 	readTxns map[string]string
 }
 
-var lockMap sync.Map // map from keys to locks
+//var lockMap sync.Map // map from keys to locks
+type LockMap struct {
+    mu sync.Mutex
+    mp  map[string]*Locks
+} 
+var lockMap = &LockMap{mp: make(map[string]*Locks)}
 
 func (l *Locks) SLock(txn_id string) bool {
 
@@ -84,19 +89,20 @@ func (l *Locks)XUnlock() bool{
 }
 
 
-func (kv *KVService) Abort(request *kvs.GetRequest, response *kvs.GetResponse) error {
-
-
+func (kv *KVService) Abort(request *kvs.AbortRequest, response *kvs.AbortResponse) error {
+	kv.Lock()
+	_, found := kv.mp[request.Key];
+	kv.Unlock()
 	if request.IsRead {
-		lockMap[request.Key].SUnlock(request.TxnID)
-	}else{
-		if value, found := kv.mp[request.Key]; found {
-			lockMap[request.Key].XUnlock()
+		if found {
+			lockMap.mp[request.Key].SUnlock(request.TxnID)
 		}
-		else{
-			delete(lockMap, request.Key)
+	} else {
+		if found {
+			lockMap.mp[request.Key].XUnlock()
+		} else {
+			delete(lockMap.mp, request.Key)
 			kv.Unlock()
-
 		}
 	}
 	response.Ack = true
@@ -105,51 +111,85 @@ func (kv *KVService) Abort(request *kvs.GetRequest, response *kvs.GetResponse) e
 
 func (kv *KVService) Get(request *kvs.GetRequest, response *kvs.GetResponse) error {
 	response.Vote = false
+	kv.Lock()
+	_, found := kv.mp[request.Key];
+	kv.Unlock()
 	if !request.Commit { //phase1
-		if value, found := kv.mp[request.Key]; found {
-			if lockMap[request.Key].SLock(request.TxnID) {
+		
+		if found {
+			if lockMap.mp[request.Key].SLock(request.TxnID) {
 				response.Vote = true
 			}
-		}
-		else{
-			response.Vote = true
-		} 
-	}
-	else{//Phase 2
-		response.Value = kv.mp[request.Key]
-		lockMap[request.Key].SUnlock(request.TxnID)
-	}
+		} else {
 
+			response.Vote = true //may need to handle this case differently
+		} 
+	} else {//Phase 2
+		if found {
+			response.Value = kv.mp[request.Key]
+			lockMap.mp[request.Key].SUnlock(request.TxnID)
+
+		} else{
+			response.Value = ""
+		}
+		
+	}
 	return nil
 }
 
 func (kv *KVService) Put(request *kvs.PutRequest, response *kvs.PutResponse) error {
-	response.vote=false
+	response.Vote=false
+	kv.Lock()
+	_, found := kv.mp[request.Key];
+	kv.Unlock()
 	if !request.Commit { //phase1
-		if value, found := kv.mp[request.Key]; found {
-			if lockMap[request.Key].XLock(request.TxnID){
+		fmt.Println("In Put at the begin rpc call")
+		if found {
+			fmt.Println("found the key")
+
+			if lockMap.mp[request.Key].XLock(request.TxnID){
 				response.Vote = true
 			}
-		}
-		else{
-			lockMap.Store(request.Key, &Locks{writeTxn: "", readTxns: make(map[string]string)})
-			if lockMap[request.Key].XLock(request.TxnID) && kv.TryLock(){
-				response.Vote = true
+		} else {
+			fmt.Println("found not the key")
+
+			if lockMap.mu.TryLock(){
+				lockMap.mp[request.Key] = &Locks{readTxns: make(map[string]string)}
+				lockMap.mu.Unlock()
+
+				if lockMap.mp[request.Key].XLock(request.TxnID){
+					if kv.TryLock(){
+						fmt.Println("got the threelock")
+						kv.mp[request.Key] = ""
+						kv.Unlock()	
+						response.Vote = true
+					} else {
+						lockMap.mp[request.Key].XUnlock()
+						lockMap.mu.Lock()
+						delete(lockMap.mp, request.Key)
+						lockMap.mu.Unlock()
+
+					}
+				} else {
+					lockMap.mu.Lock()
+					delete(lockMap.mp, request.Key)
+					lockMap.mu.Unlock()
+
+				}
 			}
 		}
-	}
-	else{//Phase2
-		if value, found := kv.mp[request.Key]; found {
-			kv.mp[request.Key] = response.Value
-			lockMap[request.Key].XUnlock()
-			response.ack = True
+	} else {//Phase2
+		if found {
+			kv.mp[request.Key] = request.Value
+			lockMap.mp[request.Key].XUnlock()
+			response.Ack = true
+		} else {
+			kv.mp[request.Key] = request.Value
+			lockMap.mp[request.Key].XUnlock()
+			fmt.Println("In Get, length of map is", len(kv.mp))
+			response.Ack = true
 		}
-		else{
-			kv.mp[request.Key] = response.Value
-			lockMap[request.Key].XUnlock()
-			kv.Unlock()
-			response.ack = True
-		}
+		
 	}
 
 	return nil

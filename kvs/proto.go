@@ -19,7 +19,7 @@ type Transaction struct {
 // 2 no
 // 3 waiting 2
 type TransactionState struct {
-	states [3]int
+	States [3]int
 }
 
 type AbortRequest struct {
@@ -74,7 +74,7 @@ func HashKeyMod(s string, n int) int {
 }
 
 func RandString() (string, error) {
-	n := 16
+	n := 64
 	const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	out := make([]byte, n)
 	max := big.NewInt(int64(len(letters)))
