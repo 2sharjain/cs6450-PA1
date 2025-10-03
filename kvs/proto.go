@@ -40,8 +40,8 @@ type PutRequest struct {
 }
 
 type PutResponse struct {
+	Value string // we populate this only for phase 1
 	Vote bool // true for yes, false for no
-	Ack bool // true for ack, false for nack
 }
 
 type GetRequest struct {

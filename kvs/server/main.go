@@ -9,6 +9,7 @@ import (
 	"net/rpc"
 	"sync"
 	"time"
+	"strconv"
 
 	"github.com/rstutsman/cs6450-labs/kvs"
 )
@@ -77,6 +78,17 @@ func (l *Locks) XLock(txn_id string) bool {
 		l.writeTxn = txn_id
 		return true
 	}
+	if l.writeTxn == "" && len(l.readTxns) == 1 && l.readTxns[txn_id] == "0" {
+		l.writeTxn = txn_id
+		delete(l.readTxns, txn_id)
+		return true
+	}
+	if l.writeTxn == txn_id {
+		return true
+	}
+
+
+
 	return false
 }
 func (l *Locks)XUnlock() bool{
@@ -120,7 +132,7 @@ func (kv *KVService) Abort(request *kvs.AbortRequest, response *kvs.AbortRespons
 
 func (kv *KVService) Get(request *kvs.GetRequest, response *kvs.GetResponse) error {
 	response.Vote = false
-	_, found := kv.mp.Load(request.Key);
+	val, found := kv.mp.Load(request.Key);
 
 	if !request.Commit { //phase1
 		
@@ -129,11 +141,12 @@ func (kv *KVService) Get(request *kvs.GetRequest, response *kvs.GetResponse) err
 			if l_ok {
 				lock := l_val.(*Locks)
 				if lock.SLock(request.TxnID){
+					response.Value = val.(string)
 					response.Vote = true
 				}
 			}
 		} else {
-
+			response.Value = ""
 			response.Vote = true
 		} 
 	} else {//Phase 2
@@ -161,7 +174,7 @@ func (kv *KVService) Get(request *kvs.GetRequest, response *kvs.GetResponse) err
 
 func (kv *KVService) Put(request *kvs.PutRequest, response *kvs.PutResponse) error {
 	response.Vote=false
-	_, found := kv.mp.Load(request.Key);
+	value, found := kv.mp.Load(request.Key);
 	if !request.Commit { //phase1
 		if found {
 			l_val, l_ok := lockMap.Load(request.Key)
@@ -169,6 +182,7 @@ func (kv *KVService) Put(request *kvs.PutRequest, response *kvs.PutResponse) err
 				lock := l_val.(*Locks)
 				if lock.XLock(request.TxnID){
 					response.Vote = true
+					response.Value = value.(string)
 				}
 			}
 
@@ -187,17 +201,22 @@ func (kv *KVService) Put(request *kvs.PutRequest, response *kvs.PutResponse) err
 			}
 		}
 	} else {//Phase2
+		if request.Value == "" {
+			fmt.Println("Put with empty value: ",request)
+		}
 		kv.mp.Store(request.Key, request.Value)
 		l_val, l_ok := lockMap.Load(request.Key)
 			if l_ok {
 				lock := l_val.(*Locks)
 				lock.XUnlock()
 			}
-		response.Ack = true
+		response.Value = request.Value
+	
+	// kv.Lock()
+	// fmt.Println("Total Values:", kv.totalValues())
+	// kv.Unlock()
+	fmt.Println("Put commited: ","key:", request.Key, "value:", request.Value)
 	}
-	kv.Lock()
-	kv.stats.puts++
-	kv.Unlock()
 	return nil
 }
 
@@ -209,6 +228,8 @@ func (kv *KVService) printStats() {
 	now := time.Now()
 	lastPrint := kv.lastPrint
 	kv.lastPrint = now
+	// mp := kv.mp
+	//total, _ := kv.totalValues()
 	kv.Unlock()
 
 	diff := stats.Sub(&prevStats)
@@ -219,6 +240,37 @@ func (kv *KVService) printStats() {
 		float64(diff.puts)/deltaS,
 		float64(diff.aborts)/deltaS,
 		float64(diff.gets+diff.puts)/deltaS)
+	//fmt.Println("Total sum of values:", total)
+// 	mp.Range(func(key, value any) bool {
+//     fmt.Printf("key=%v, value=%v\n", key, value)
+//     return true // keep iterating
+// })
+}
+
+
+func (kv *KVService)totalValues() (int, error) {
+    total := 0
+    var err error
+
+    kv.mp.Range(func(key, value any) bool {
+        strVal, ok := value.(string)
+        if !ok {
+            // not a string, skip or stop
+            return true
+        }
+
+        num, convErr := strconv.Atoi(strVal)
+        if convErr != nil {
+            err = convErr
+            return false // stop iteration on error
+        }
+
+        total += num
+		fmt.Println("key:", key, "value:", strVal, "num:", num, "total so far:", total)
+        return true
+    })
+
+    return total, err
 }
 
 func main() {
@@ -242,6 +294,6 @@ func main() {
 			time.Sleep(1 * time.Second)
 		}
 	}()
-
+	
 	http.Serve(l, nil)
 }

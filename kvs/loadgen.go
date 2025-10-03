@@ -13,6 +13,9 @@ type Workload struct {
 	keygen        *ZipfianGenerator // Generator for record selection.
 }
 
+
+
+
 func NewWorkload(name string, theta float64) *Workload {
 	gen := NewXorshift64(rand.Uint64())
 	workload := &Workload{
@@ -44,12 +47,13 @@ func NewWorkload(name string, theta float64) *Workload {
 type WorkloadOp struct {
 	Key    uint64 // Key for the operation.
 	IsRead bool   // True if this is a read operation, false for write.
+	Value string
 }
 
 func (w *Workload) Next() WorkloadOp {
 	key := w.keygen.Uint64() % w.records
 	isRead := w.gen.Uint64() < w.readThreshold
-	return WorkloadOp{Key: key, IsRead: isRead}
+	return WorkloadOp{Key: key, IsRead: isRead, Value: ""}
 }
 
 // Taken from Wikipedia.
