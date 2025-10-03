@@ -74,21 +74,13 @@ func (client *Client) Put(key string, value string, target_idx int, txn_id strin
 			TxnID: txn_id,
 		}
 		response := kvs.PutResponse{}
-		fmt.Println("In Put before rpc call", request, response)
 		cxn := client.rpcClients[target_idx]
 		err := cxn.Call("KVService.Put", &request, &response)
-		fmt.Println("In Put after rpc call", request, response)
-
 		if err != nil {
 			log.Fatal(err)
 		}
-		fmt.Println("end of p1", response.Vote)	
-
 		return response.Vote, response.Ack
-
-
 	} else{
-		fmt.Println("In Put Phase 2")
 		request := kvs.PutRequest{
 			Key:   key,
 			Value: value,
@@ -101,9 +93,6 @@ func (client *Client) Put(key string, value string, target_idx int, txn_id strin
 		if err != nil {
 			log.Fatal(err)
 		}
-		fmt.Println("end of p2", response.Vote)	
-
-
 		return response.Vote, response.Ack
 	}
 }
@@ -159,8 +148,6 @@ func sendTransaction(client *Client, txn kvs.Transaction, addrs []string, txnsta
 			key := fmt.Sprintf("%d", txn.Ops[i].Key)
 			target_id := kvs.HashKeyMod(key, len(addrs))
 			if txnstate.States[i] !=2 {
-				fmt.Println("I am not two ")
-
 				client.Abort(key, target_id, txn.Transaction_id, txn.Ops[i].IsRead)
 			}
 		}
@@ -174,7 +161,6 @@ func sendTransaction(client *Client, txn kvs.Transaction, addrs []string, txnsta
 			var key = fmt.Sprintf("%d", txn.Ops[i].Key)
 			target_id := kvs.HashKeyMod(key, len(addrs))
 			if txn.Ops[i].IsRead {
-				fmt.Println("Phaseeeeeee 2", key, target_id, txn.Transaction_id, txnstate.States)
 				_, _ = client.Get(key, target_id, txn.Transaction_id, false)
 			} else {
 				_, _ = client.Put(key, value, target_id, txn.Transaction_id, false)
@@ -199,7 +185,7 @@ func runClient(id int, addrs []string, done *atomic.Bool, workload *kvs.Workload
 			// client.TxnStateMap[txn.Transaction_id] = kvs.TransactionState{}
 			var txnstate = kvs.TransactionState{}
 			go sendTransaction(client, txn, addrs, txnstate)
-			opsCompleted++
+			opsCompleted+=3
 		}
 	}
 
@@ -224,7 +210,7 @@ func main() {
 
 	flag.Var(&hosts, "hosts", "Comma-separated list of host:ports to connect to")
 	theta := flag.Float64("theta", 0.99, "Zipfian distribution skew parameter")
-	workload := flag.String("workload", "YCSB-B", "Workload type (YCSB-A, YCSB-B, YCSB-C)")
+	workload := flag.String("workload", "YCSB-A", "Workload type (YCSB-A, YCSB-B, YCSB-C)")
 	secs := flag.Int("secs", 30, "Duration in seconds for each client to run")
 	flag.Parse()
 

@@ -16,12 +16,14 @@ import (
 type Stats struct {
 	puts uint64
 	gets uint64
+	aborts uint64
 }
 
 func (s *Stats) Sub(prev *Stats) Stats {
 	r := Stats{}
 	r.puts = s.puts - prev.puts
 	r.gets = s.gets - prev.gets
+	r.aborts = s.aborts - prev.aborts
 	return r
 }
 
@@ -47,12 +49,8 @@ type Locks struct {
 	readTxns map[string]string
 }
 
-//var lockMap sync.Map // map from keys to locks
-type LockMap struct {
-    mu sync.Mutex
-    mp  map[string]*Locks
-} 
-var lockMap = &LockMap{mp: make(map[string]*Locks)}
+var lockMap sync.Map // map from keys to locks
+
 
 func (l *Locks) SLock(txn_id string) bool {
 
@@ -93,16 +91,30 @@ func (kv *KVService) Abort(request *kvs.AbortRequest, response *kvs.AbortRespons
 	_, found := kv.mp.Load(request.Key);
 	if request.IsRead {
 		if found {
-			lockMap.mp[request.Key].SUnlock(request.TxnID)
+			//lockMap.mp[request.Key].SUnlock(request.TxnID)
+			l_val, l_ok := lockMap.Load(request.Key)
+			if l_ok {
+				lock := l_val.(*Locks)
+				lock.SUnlock(request.TxnID)
+			}
 		}
 	} else {
 		if found {
-			lockMap.mp[request.Key].XUnlock()
+			//lockMap.mp[request.Key].XUnlock()
+			l_val, l_ok := lockMap.Load(request.Key)
+			if l_ok {
+				lock := l_val.(*Locks)
+				lock.XUnlock()
+			}
 		} else {
-			delete(lockMap.mp, request.Key)
+			//delete(lockMap.mp, request.Key)
+			lockMap.Delete(request.Key)
 		}
 	}
 	response.Ack = true
+	kv.Lock()
+	kv.stats.aborts++
+	kv.Unlock()
 	return nil
 }
 
@@ -113,27 +125,37 @@ func (kv *KVService) Get(request *kvs.GetRequest, response *kvs.GetResponse) err
 	if !request.Commit { //phase1
 		
 		if found {
-			if lockMap.mp[request.Key].SLock(request.TxnID) {
-				response.Vote = true
+			l_val, l_ok := lockMap.Load(request.Key)
+			if l_ok {
+				lock := l_val.(*Locks)
+				if lock.SLock(request.TxnID){
+					response.Vote = true
+				}
 			}
 		} else {
 
-			response.Vote = true //may need to handle this case differently
+			response.Vote = true
 		} 
 	} else {//Phase 2
 		if found {
-
 			val, ok := kv.mp.Load(request.Key)
 			if ok {
 				response.Value = val.(string)
 			}
-			lockMap.mp[request.Key].SUnlock(request.TxnID)
+			//lockMap.mp[request.Key].SUnlock(request.TxnID)
+			l_val, l_ok := lockMap.Load(request.Key)
+			if l_ok {
+				lock := l_val.(*Locks)
+				lock.SUnlock(request.TxnID)
+			}
 
 		} else{
 			response.Value = ""
 		}
-		
 	}
+	kv.Lock()
+	kv.stats.gets++
+	kv.Unlock()
 	return nil
 }
 
@@ -142,34 +164,40 @@ func (kv *KVService) Put(request *kvs.PutRequest, response *kvs.PutResponse) err
 	_, found := kv.mp.Load(request.Key);
 	if !request.Commit { //phase1
 		if found {
-			if lockMap.mp[request.Key].XLock(request.TxnID){
-				response.Vote = true
-			}
-		} else {
-			if lockMap.mu.TryLock(){
-				lockMap.mp[request.Key] = &Locks{readTxns: make(map[string]string)}
-				lockMap.mu.Unlock()
-
-				if lockMap.mp[request.Key].XLock(request.TxnID){
-					kv.mp.Store(request.Key, "")
-						response.Vote = true
-				} else {
-					lockMap.mp[request.Key].XUnlock()
-					lockMap.mu.Lock()
-					delete(lockMap.mp, request.Key)
-					lockMap.mu.Unlock()
-
+			l_val, l_ok := lockMap.Load(request.Key)
+			if l_ok {
+				lock := l_val.(*Locks)
+				if lock.XLock(request.TxnID){
+					response.Vote = true
 				}
-			} 
+			}
+
+		} else {
+			lockMap.Store(request.Key, &Locks{readTxns: make(map[string]string)})
+			l_val, l_ok := lockMap.Load(request.Key)
+			if l_ok {
+				lock := l_val.(*Locks)
+				if lock.XLock(request.TxnID) {
+					kv.mp.Store(request.Key, "")
+					response.Vote = true
+				} else {
+					lock.XUnlock()
+					lockMap.Delete(request.Key)
+				}
+			}
 		}
 	} else {//Phase2
-
 		kv.mp.Store(request.Key, request.Value)
-		lockMap.mp[request.Key].XUnlock()
+		l_val, l_ok := lockMap.Load(request.Key)
+			if l_ok {
+				lock := l_val.(*Locks)
+				lock.XUnlock()
+			}
 		response.Ack = true
-		
 	}
-
+	kv.Lock()
+	kv.stats.puts++
+	kv.Unlock()
 	return nil
 }
 
@@ -186,9 +214,10 @@ func (kv *KVService) printStats() {
 	diff := stats.Sub(&prevStats)
 	deltaS := now.Sub(lastPrint).Seconds()
 
-	fmt.Printf("get/s %0.2f\nput/s %0.2f\nops/s %0.2f\n\n",
+	fmt.Printf("get/s %0.2f\nput/s %0.2f\naborts/s %0.2f\nops/s %0.2f\n\n",
 		float64(diff.gets)/deltaS,
 		float64(diff.puts)/deltaS,
+		float64(diff.aborts)/deltaS,
 		float64(diff.gets+diff.puts)/deltaS)
 }
 
