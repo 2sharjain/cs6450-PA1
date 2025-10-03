@@ -156,7 +156,6 @@ func sendTransaction(client *Client, txn kvs.Transaction, addrs []string, txnsta
 		return
 	}
 	//Phase2
-	var val string
 	if txnstate.States[0]== 1 && txnstate.States[1]== 1 && txnstate.States[2]== 1 {
 		for i := 0; i < 3; i++ {
 			var key = fmt.Sprintf("%d", txn.Ops[i].Key)
@@ -164,11 +163,9 @@ func sendTransaction(client *Client, txn kvs.Transaction, addrs []string, txnsta
 			if txn.Ops[i].IsRead {
 				_, _ = client.Get(key, target_id, txn.Transaction_id, false)
 			} else {
-				val, _ = client.Put(key, txn.Ops[i].Value, target_id, txn.Transaction_id, false)
+				_, _ = client.Put(key, txn.Ops[i].Value, target_id, txn.Transaction_id, false)
 			}
-			fmt.Println("key:", key, "value:", val)
 		}
-
 	}
 }
 
@@ -179,11 +176,11 @@ func sendTransaction(client *Client, txn kvs.Transaction, addrs []string, txnsta
 func sendTransaction_bankLoad(client *Client, txn kvs.Transaction, addrs []string, txnstate kvs.TransactionState) {
 	//Phase1
 	if txnstate.States[0]==0 && txnstate.States[1]==0 && txnstate.States[2]==0 {
-		fmt.Println("Entering phase 1, we have", txn.Ops, txnstate )
 
 		var vote bool
 		var credit_val string
 		var debit_val string
+
 		key := fmt.Sprintf("%d", txn.Ops[0].Key)
 		target_id := kvs.HashKeyMod(key, len(addrs))
 		debit_val, vote = client.Get(key, target_id, txn.Transaction_id, true)
@@ -209,17 +206,13 @@ func sendTransaction_bankLoad(client *Client, txn kvs.Transaction, addrs []strin
 		credit_val, vote = client.Put(key, txn.Ops[2].Value, target_id, txn.Transaction_id, true)
 		credit_int, _ := strconv.ParseUint(credit_val, 10, 64)
 		txn.Ops[2].Value = fmt.Sprintf("%d", uint64(credit_int)+uint64(100))
-
-
 		if vote{
 			txnstate.States[2]= 1 
 		}else{
 			txnstate.States[2]= 2
 		}
-		fmt.Println("exiting phase 1, we have", txn.Ops, txnstate)
 
 	}
-	//fmt.Println("after phase 1, we have", txn, txnstate)
 
 	//abort
 	if txnstate.States[0]== 2 || txnstate.States[1]== 2 || txnstate.States[2]== 2 {
@@ -232,14 +225,13 @@ func sendTransaction_bankLoad(client *Client, txn kvs.Transaction, addrs []strin
 				client.Abort(key, target_id, txn.Transaction_id, txn.Ops[i].IsRead)
 			}
 		}
-		go sendTransaction(client, txn, addrs, kvs.TransactionState{})
+		//go sendTransaction_bankLoad(client, txn, addrs, kvs.TransactionState{})
 		return
 	}
 
 	//Phase2
 	if txnstate.States[0]== 1 && txnstate.States[1]== 1 && txnstate.States[2]== 1 {
-		//println("Committing transaction")
-		fmt.Println("Entering phase 2, we have", txn.Ops, txnstate)
+		fmt.Printf("Am I getting to phase2?")
 		for i := 0; i < 3; i++ {
 			var key = fmt.Sprintf("%d", txn.Ops[i].Key)
 			target_id := kvs.HashKeyMod(key, len(addrs))
@@ -249,7 +241,7 @@ func sendTransaction_bankLoad(client *Client, txn kvs.Transaction, addrs []strin
 				_, _ = client.Put(key, txn.Ops[i].Value, target_id, txn.Transaction_id, false)
 			}
 		}
-		fmt.Println("exiting phase 2, we have", txn.Ops, txnstate)
+
 
 	}
 
@@ -287,6 +279,7 @@ func runClient(id int, addrs []string, done *atomic.Bool, workload *kvs.Workload
 
 func runBankClient(id int, addrs []string, done *atomic.Bool, resultsCh chan<- uint64) {
 
+
 	client := Dial(addrs)
 	const batchSize = 1024
 	opsCompleted := uint64(0)
@@ -316,19 +309,13 @@ func runBankClient(id int, addrs []string, done *atomic.Bool, resultsCh chan<- u
 			txn.Ops[2] = kvs.WorkloadOp{Key: creditId, IsRead: false, Value: "" }
 			// client.TxnStateMap[txn.Transaction_id] = kvs.TransactionState{}
 			var txnstate = kvs.TransactionState{}
-			go sendTransaction_bankLoad(client, txn, addrs, txnstate)
+			//go sendTransaction_bankLoad(client, txn, addrs, txnstate)
+			sendTransaction_bankLoad(client, txn, addrs, txnstate)
 			opsCompleted+=3
 		}
 	}
-
-
-
-
 	fmt.Printf("Client %d finished operations.\n", id)
-
 	resultsCh <- opsCompleted
-
-
 	return
 
 
@@ -394,16 +381,12 @@ func main() {
 
 
 
-
-
-
-
 	hosts := HostList{}
 
 	flag.Var(&hosts, "hosts", "Comma-separated list of host:ports to connect to")
 	theta := flag.Float64("theta", 0.99, "Zipfian distribution skew parameter")
 	workload := flag.String("workload", "YCSB-A", "Workload type (YCSB-A, YCSB-B, YCSB-C)")
-	secs := flag.Int("secs", 30, "Duration in seconds for each client to run")
+	secs := flag.Int("secs", 15, "Duration in seconds for each client to run")
 	flag.Parse()
 
 	if len(hosts) == 0 {

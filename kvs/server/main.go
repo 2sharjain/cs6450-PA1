@@ -54,13 +54,17 @@ var lockMap sync.Map // map from keys to locks
 
 
 func (l *Locks) SLock(txn_id string) bool {
-
+	//if l.mu.TryLock(){
+	//	defer l.mu.Unlock()
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.writeTxn == "" {
-		l.readTxns[txn_id] = "0"
-		return true
-	}
+		if l.writeTxn == "" {
+			l.readTxns[txn_id] = "0"
+			//fmt.Println("Read lock granted to txn:", txn_id)
+			return true
+		}
+	//}
+
 	return false
 }
 
@@ -68,6 +72,8 @@ func (l *Locks) SUnlock(txn_id string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	delete(l.readTxns, txn_id)
+	//fmt.Println("Read unlock granted to txn:", txn_id)
+
 	return true
 }
 
@@ -75,26 +81,34 @@ func (l *Locks) XLock(txn_id string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.writeTxn == "" && len(l.readTxns) == 0 {
-		l.writeTxn = txn_id
-		return true
+	l.writeTxn = txn_id
+	//fmt.Println("write lock granted to txn:", txn_id)
+
+	return true
 	}
+
 	if l.writeTxn == "" && len(l.readTxns) == 1 && l.readTxns[txn_id] == "0" {
+		l.SUnlock(txn_id)
 		l.writeTxn = txn_id
 		delete(l.readTxns, txn_id)
+		//fmt.Println("write lock granted to txn:", txn_id)
+
 		return true
-	}
+		}
 	if l.writeTxn == txn_id {
+		//fmt.Println("write lock granted to txn:", txn_id)
+
 		return true
-	}
-
-
-
+		}
+	
 	return false
 }
 func (l *Locks)XUnlock() bool{
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.writeTxn = ""
+	//fmt.Println("writeunlock")
+
 	return true
 }
 
@@ -103,7 +117,6 @@ func (kv *KVService) Abort(request *kvs.AbortRequest, response *kvs.AbortRespons
 	_, found := kv.mp.Load(request.Key);
 	if request.IsRead {
 		if found {
-			//lockMap.mp[request.Key].SUnlock(request.TxnID)
 			l_val, l_ok := lockMap.Load(request.Key)
 			if l_ok {
 				lock := l_val.(*Locks)
@@ -112,14 +125,12 @@ func (kv *KVService) Abort(request *kvs.AbortRequest, response *kvs.AbortRespons
 		}
 	} else {
 		if found {
-			//lockMap.mp[request.Key].XUnlock()
 			l_val, l_ok := lockMap.Load(request.Key)
 			if l_ok {
 				lock := l_val.(*Locks)
 				lock.XUnlock()
 			}
 		} else {
-			//delete(lockMap.mp, request.Key)
 			lockMap.Delete(request.Key)
 		}
 	}
@@ -201,9 +212,6 @@ func (kv *KVService) Put(request *kvs.PutRequest, response *kvs.PutResponse) err
 			}
 		}
 	} else {//Phase2
-		if request.Value == "" {
-			fmt.Println("Put with empty value: ",request)
-		}
 		kv.mp.Store(request.Key, request.Value)
 		l_val, l_ok := lockMap.Load(request.Key)
 			if l_ok {
@@ -211,11 +219,7 @@ func (kv *KVService) Put(request *kvs.PutRequest, response *kvs.PutResponse) err
 				lock.XUnlock()
 			}
 		response.Value = request.Value
-	
-	// kv.Lock()
-	// fmt.Println("Total Values:", kv.totalValues())
-	// kv.Unlock()
-	fmt.Println("Put commited: ","key:", request.Key, "value:", request.Value)
+		fmt.Println("PutComitted: ", "Key:", request.Key, "Value:", request.Value)
 	}
 	return nil
 }
@@ -241,10 +245,6 @@ func (kv *KVService) printStats() {
 		float64(diff.aborts)/deltaS,
 		float64(diff.gets+diff.puts)/deltaS)
 	//fmt.Println("Total sum of values:", total)
-// 	mp.Range(func(key, value any) bool {
-//     fmt.Printf("key=%v, value=%v\n", key, value)
-//     return true // keep iterating
-// })
 }
 
 

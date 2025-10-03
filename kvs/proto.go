@@ -74,7 +74,7 @@ func HashKeyMod(s string, n int) int {
 }
 
 func RandString() (string, error) {
-	n := 64
+	n := 16
 	const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	out := make([]byte, n)
 	max := big.NewInt(int64(len(letters)))
