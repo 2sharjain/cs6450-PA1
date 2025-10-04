@@ -23,6 +23,17 @@ usage() {
     exit 1
 }
 
+BANKTESTCASE=""
+
+# Parse extra argument for banktestcase
+for arg in "$@"; do
+    case "$arg" in
+        --banktestcase)
+            BANKTESTCASE="-banktestcase=true"
+            ;;
+    esac
+done
+
 # Check for help options
 for arg in "$@"; do
     case "$arg" in
@@ -62,6 +73,7 @@ elif [ "$#" -eq 1 ]; then
     CLIENT_COUNT=$((AVAILABLE_COUNT - SERVER_COUNT))
     SERVER_ARGS=""
     CLIENT_ARGS=""
+
 elif [ "$#" -eq 2 ]; then
     # Server and client counts provided
     SERVER_COUNT="$1"
@@ -179,7 +191,7 @@ for node in "${CLIENT_NODES[@]}"; do
     echo "Starting client on $node..."
     # Use a marker in the command line to make it easier to identify and wait for
     CLIENT_MARKER="kvsclient-run-$TS-$node"
-    ${SSH} $node "exec -a '$CLIENT_MARKER' ${ROOT}/bin/kvsclient -hosts $SERVER_HOSTS $CLIENT_ARGS > \"$LOG_DIR/kvsclient-$node.log\" 2>&1" &
+    ${SSH} $node "exec -a '$CLIENT_MARKER' ${ROOT}/bin/kvsclient -hosts $SERVER_HOSTS $CLIENT_ARGS $BANKTESTCASE > \"$LOG_DIR/kvsclient-$node.log\" 2>&1" &
     CLIENT_PIDS+=($!)
 done
 

@@ -10,6 +10,7 @@ import (
 	"time"
 	"math/rand"
 	"strconv"
+	"sync"
 
 	"github.com/rstutsman/cs6450-labs/kvs"
 )
@@ -169,10 +170,6 @@ func sendTransaction(client *Client, txn kvs.Transaction, addrs []string, txnsta
 	}
 }
 
-
-
-
-
 func sendTransaction_bankLoad(client *Client, txn kvs.Transaction, addrs []string, txnstate kvs.TransactionState) {
 	//Phase1
 	if txnstate.States[0]==0 && txnstate.States[1]==0 && txnstate.States[2]==0 {
@@ -216,7 +213,6 @@ func sendTransaction_bankLoad(client *Client, txn kvs.Transaction, addrs []strin
 
 	//abort
 	if txnstate.States[0]== 2 || txnstate.States[1]== 2 || txnstate.States[2]== 2 {
-
 		//send rpc call to all servers to abort
 		for i := 0; i < 3; i++ {
 			key := fmt.Sprintf("%d", txn.Ops[i].Key)
@@ -225,13 +221,13 @@ func sendTransaction_bankLoad(client *Client, txn kvs.Transaction, addrs []strin
 				client.Abort(key, target_id, txn.Transaction_id, txn.Ops[i].IsRead)
 			}
 		}
-		//go sendTransaction_bankLoad(client, txn, addrs, kvs.TransactionState{})
+		time.Sleep(500 * time.Millisecond)
+		go sendTransaction_bankLoad(client, txn, addrs, kvs.TransactionState{})
 		return
 	}
 
 	//Phase2
 	if txnstate.States[0]== 1 && txnstate.States[1]== 1 && txnstate.States[2]== 1 {
-		fmt.Printf("Am I getting to phase2?")
 		for i := 0; i < 3; i++ {
 			var key = fmt.Sprintf("%d", txn.Ops[i].Key)
 			target_id := kvs.HashKeyMod(key, len(addrs))
@@ -281,7 +277,7 @@ func runBankClient(id int, addrs []string, done *atomic.Bool, resultsCh chan<- u
 
 
 	client := Dial(addrs)
-	const batchSize = 1024
+	const batchSize = 512
 	opsCompleted := uint64(0)
 	var txn = kvs.Transaction{}
 
@@ -298,20 +294,29 @@ func runBankClient(id int, addrs []string, done *atomic.Bool, resultsCh chan<- u
 		sendTransaction(client, txn, addrs, kvs.TransactionState{})
 	}
 	// our banks are setup
+	sem := make(chan struct{}, 20) // limit to 30 concurrent goroutines
+	var wg sync.WaitGroup
 	for !done.Load() {
 		for j := 0; j < batchSize; j++ {
 			txn.Transaction_id, _ = kvs.RandString()
 			txn.Client_id = id
 			debitId := uint64(rand.Intn(10))
-			txn.Ops[0] = kvs.WorkloadOp{Key: debitId, IsRead: true, Value: "" }
+			txn.Ops[0] = kvs.WorkloadOp{Key: debitId, IsRead: true, Value: "1000" }
 			creditId := (debitId + 1) % 10
-			txn.Ops[1] = kvs.WorkloadOp{Key: debitId, IsRead: false, Value: "" }
-			txn.Ops[2] = kvs.WorkloadOp{Key: creditId, IsRead: false, Value: "" }
-			// client.TxnStateMap[txn.Transaction_id] = kvs.TransactionState{}
+			txn.Ops[1] = kvs.WorkloadOp{Key: debitId, IsRead: false, Value: "1000" }
+			txn.Ops[2] = kvs.WorkloadOp{Key: creditId, IsRead: false, Value: "1000" }
 			var txnstate = kvs.TransactionState{}
-			//go sendTransaction_bankLoad(client, txn, addrs, txnstate)
-			sendTransaction_bankLoad(client, txn, addrs, txnstate)
+			// go sendTransaction_bankLoad(client, txn, addrs, txnstate)
+			// sendTransaction_bankLoad(client, txn, addrs, txnstate)
+			wg.Add(1)
+			sem <- struct{}{} // acquire slot (blocks if 30 running already)
+			go func(txn kvs.Transaction, txnstate kvs.TransactionState) {
+				defer wg.Done()
+				defer func() { <-sem }() // release slot
+				sendTransaction_bankLoad(client, txn, addrs, txnstate)
+			}(txn, txnstate)
 			opsCompleted+=3
+
 		}
 	}
 	fmt.Printf("Client %d finished operations.\n", id)
@@ -334,15 +339,19 @@ func (h *HostList) Set(value string) error {
 
 func main() {
 
-	banktestcase := true
-	if banktestcase {
-		hosts := HostList{}
+	var bankTestCase bool
+	flag.BoolVar(&bankTestCase, "banktestcase", false, "Run bank test case")
+	hosts := HostList{}
 
-		flag.Var(&hosts, "hosts", "Comma-separated list of host:ports to connect to")
-		theta := flag.Float64("theta", 0.99, "Zipfian distribution skew parameter")
-		workload := flag.String("workload", "YCSB-A", "Workload type (YCSB-A, YCSB-B, YCSB-C)") //new workload
-		secs := flag.Int("secs", 10, "Duration in seconds for each client to run")
-		flag.Parse()
+	flag.Var(&hosts, "hosts", "Comma-separated list of host:ports to connect to")
+	theta := flag.Float64("theta", 0.99, "Zipfian distribution skew parameter")
+	workload := flag.String("workload", "YCSB-B", "Workload type (YCSB-A, YCSB-B, YCSB-C)") //new workload
+	secs := flag.Int("secs", 10, "Duration in seconds for each client to run")
+	flag.Parse()
+	fmt.Println(bankTestCase, "testcase")
+
+	if bankTestCase {
+		
 
 		if len(hosts) == 0 {
 			hosts = append(hosts, "localhost:8080")
@@ -381,13 +390,13 @@ func main() {
 
 
 
-	hosts := HostList{}
+	// hosts := HostList{}
 
-	flag.Var(&hosts, "hosts", "Comma-separated list of host:ports to connect to")
-	theta := flag.Float64("theta", 0.99, "Zipfian distribution skew parameter")
-	workload := flag.String("workload", "YCSB-A", "Workload type (YCSB-A, YCSB-B, YCSB-C)")
-	secs := flag.Int("secs", 15, "Duration in seconds for each client to run")
-	flag.Parse()
+	// flag.Var(&hosts, "hosts", "Comma-separated list of host:ports to connect to")
+	// theta := flag.Float64("theta", 0.99, "Zipfian distribution skew parameter")
+	// workload := flag.String("workload", "YCSB-B", "Workload type (YCSB-A, YCSB-B, YCSB-C)")
+	// secs := flag.Int("secs", 15, "Duration in seconds for each client to run")
+	// flag.Parse()
 
 	if len(hosts) == 0 {
 		hosts = append(hosts, "localhost:8080")
