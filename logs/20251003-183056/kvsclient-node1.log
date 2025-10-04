@@ -1,0 +1,7 @@
+true testcase
+hosts [node0:8080]
+theta 0.99
+workload YCSB-B
+secs 10
+Client 0 finished operations.
+throughput 138.65 ops/s

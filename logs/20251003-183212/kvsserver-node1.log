@@ -1,0 +1,127 @@
+Starting KVS server on :8080
+get/s 0.00
+put/s 0.00
+aborts/s 0.00
+ops/s 0.00
+
+get/s 0.00
+put/s 0.00
+aborts/s 0.00
+ops/s 0.00
+
+get/s 0.00
+put/s 0.00
+aborts/s 0.00
+ops/s 0.00
+
+get/s 0.00
+put/s 0.00
+aborts/s 0.00
+ops/s 0.00
+
+get/s 102.89
+put/s 88.90
+aborts/s 21.98
+ops/s 191.79
+
+get/s 57.94
+put/s 7.99
+aborts/s 39.96
+ops/s 65.93
+
+get/s 99.98
+put/s 6.00
+aborts/s 58.99
+ops/s 105.98
+
+get/s 139.97
+put/s 18.00
+aborts/s 75.98
+ops/s 157.97
+
+get/s 166.82
+put/s 6.99
+aborts/s 104.88
+ops/s 173.81
+
+get/s 202.84
+put/s 6.00
+aborts/s 124.90
+ops/s 208.83
+
+get/s 229.74
+put/s 11.99
+aborts/s 153.83
+ops/s 241.73
+
+get/s 242.77
+put/s 7.99
+aborts/s 164.85
+ops/s 250.76
+
+get/s 267.82
+put/s 20.99
+aborts/s 160.89
+ops/s 288.80
+
+get/s 282.90
+put/s 16.99
+aborts/s 202.93
+ops/s 299.89
+
+get/s 305.92
+put/s 5.00
+aborts/s 126.97
+ops/s 310.92
+
+get/s 342.61
+put/s 10.99
+aborts/s 150.83
+ops/s 353.59
+
+get/s 369.65
+put/s 6.99
+aborts/s 141.87
+ops/s 376.64
+
+get/s 392.93
+put/s 5.00
+aborts/s 139.98
+ops/s 397.93
+
+get/s 424.59
+put/s 5.99
+aborts/s 171.84
+ops/s 430.59
+
+get/s 450.69
+put/s 0.00
+aborts/s 200.86
+ops/s 450.69
+
+get/s 483.52
+put/s 5.99
+aborts/s 227.77
+ops/s 489.51
+
+get/s 513.81
+put/s 5.00
+aborts/s 258.90
+ops/s 518.81
+
+get/s 547.91
+put/s 4.00
+aborts/s 280.95
+ops/s 551.91
+
+get/s 123.85
+put/s 4.00
+aborts/s 39.95
+ops/s 127.85
+
+
+Shutting down server...
+key: 2, value: 0
+key: 1, value: 6500
+key: 8, value: 1100
+key: 4, value: 0
